@@ -1,0 +1,13 @@
+.vscode
+.DS_Store
+.clang-format
+*.o
+*.ko
+*.mod
+*.mod.c
+.modules.*
+.isaac.*
+compile_commands.json
+Module.symvers
+.Module.symvers.cmd
+modules.order
