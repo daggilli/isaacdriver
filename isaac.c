@@ -36,8 +36,6 @@ static ssize_t isaac_read(struct file *filep, char __user *buf, size_t len, loff
 
   if (mutex_lock_interruptible(&idevp->lockmx)) return -ERESTARTSYS;
 
-  // pr_info("enter read %ld bytes with phase %ld\n",len,idevp->phase);
-
   headresidue = (sizeof(u32) - idevp->phase) % sizeof(u32);
   if (tlen <= headresidue) headresidue = tlen;
 
@@ -59,12 +57,10 @@ static ssize_t isaac_read(struct file *filep, char __user *buf, size_t len, loff
     bigblks = tlen / OPBUFLEN;
     blks = (tlen % OPBUFLEN) / sizeof(u32);
     tailresidue = tlen % sizeof(u32);
-    // pr_info("read tlen %ld BB %ld B %ld H %ld T
-    // %ld\n",tlen,bigblks,blks,headresidue,tailresidue);
+
     if (bigblks != 0) {
       for (j = 1; j < OPBUFSIZE; j++) {
         idevp->opbuf[j] = randget(&(idevp->isaacrng));
-        // pr_info("read %ld %08X\n",j,idevp->opbuf[j]);
       }
       if ((ctures = copy_to_user(buf + readres, idevp->opbuf, OPBUFLEN)) < 0) {
         readres = -EFAULT;
@@ -75,10 +71,8 @@ static ssize_t isaac_read(struct file *filep, char __user *buf, size_t len, loff
 
   if (readres >= 0) {
     for (i = 1; i < bigblks; i++) {
-      // pr_info("read bigblk %ld\n",i);
       for (j = 0; j < OPBUFSIZE; j++) {
         idevp->opbuf[j] = randget(&(idevp->isaacrng));
-        // pr_info("BGB read %ld %08X\n",j,idevp->opbuf[j]);
       }
       if ((ctures = copy_to_user(buf + readres, idevp->opbuf, OPBUFLEN)) < 0) {
         readres = -EFAULT;
@@ -99,7 +93,6 @@ static ssize_t isaac_read(struct file *filep, char __user *buf, size_t len, loff
         readres += sizeof(u32);
 
       idevp->opbuf[0] = randget(&(idevp->isaacrng));
-      // pr_info("B read %ld %08X\n",i,idevp->opbuf[0]);
     }
   }
 
@@ -111,8 +104,6 @@ static ssize_t isaac_read(struct file *filep, char __user *buf, size_t len, loff
       idevp->phase += tailresidue;
     }
   }
-
-  // pr_info("exit read %ld with phase %ld\n",readres,idevp->phase);
 
   mutex_unlock(&idevp->lockmx);
 
@@ -127,8 +118,6 @@ static ssize_t isaac_write(struct file *filep, const char __user *buf, size_t le
   if (tlen > RANDSIZE * sizeof(u32)) tlen = RANDSIZE * sizeof(u32);
 
   if (mutex_lock_interruptible(&idevp->lockmx)) return -ERESTARTSYS;
-
-  pr_info("enter write %ld (%ld) bytes\n", len, tlen);
 
   memset(idev.isaacrng.randrsl, 0, RANDSIZE * sizeof(u32));
 
@@ -145,8 +134,6 @@ static ssize_t isaac_write(struct file *filep, const char __user *buf, size_t le
 
   mutex_unlock(&idevp->lockmx);
 
-  pr_info("exit write, wrote %ld bytes\n", writeres);
-
   return writeres;
 }
 
@@ -154,13 +141,9 @@ static ssize_t bswap_show(struct device *dev, struct device_attribute *attr, cha
   struct isaacdev *idevp = (struct isaacdev *)dev_get_drvdata(dev);
   int pres;
 
-  pr_info("bswap_show: pid=%d comm=%s\n", current->pid, current->comm);
-
   if (mutex_lock_interruptible(&idevp->lockmx)) return 0;
 
-  pr_info("read bswap %d\n", idevp->bswap);
-
-  pres = snprintf(buf, PAGE_SIZE, "bswap: %d\n", idevp->bswap);
+  pres = snprintf(buf, PAGE_SIZE, "%u\n", idevp->bswap);
 
   mutex_unlock(&idevp->lockmx);
 
@@ -168,23 +151,11 @@ static ssize_t bswap_show(struct device *dev, struct device_attribute *attr, cha
 }
 
 static ssize_t bswap_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count) {
-  char tmpbuf[2];
-  u32 tmpbswap;
-  size_t cnt;
   struct isaacdev *idevp = (struct isaacdev *)dev_get_drvdata(dev);
+  int bsstoreres;
+  unsigned int tmpbswap;
 
-  pr_info("bswap_store: pid=%d comm=%s count=%zu buf='%.*s'\n", current->pid, current->comm, count,
-          (int)count, buf);
-
-  cnt = (count > 0 ? 1 : 0);
-
-  if (cnt == 1) {
-    tmpbuf[0] = buf[0];
-    tmpbuf[1] = 0;
-    sscanf(tmpbuf, "%d", &tmpbswap);
-  } else
-    tmpbswap = 0;
-
+  if ((bsstoreres = kstrtouint(buf, 0, &tmpbswap)) < 0) return bsstoreres;
   if (tmpbswap != 0) tmpbswap = 1;
 
   if (mutex_lock_interruptible(&idevp->lockmx)) return 0;
@@ -192,11 +163,9 @@ static ssize_t bswap_store(struct device *dev, struct device_attribute *attr, co
   idevp->bswap = tmpbswap;
   randget = (idevp->bswap == 1 ? randisc_byterev : randisc);
 
-  pr_info("store bswap %d\n", idevp->bswap);
-
   mutex_unlock(&idevp->lockmx);
 
-  return cnt;
+  return count;
 }
 
 static DEVICE_ATTR_RW(bswap);
@@ -419,9 +388,13 @@ static int __init isaac_init(void) {
 
   dev_set_drvdata(idev.iscdev, &idev);
 
-  device_create_file(idev.iscdev, &dev_attr_bswap);
-
-  pr_info("isaac kernel init succeeded\n");
+  initres = device_create_file(idev.iscdev, &dev_attr_bswap);
+  if (initres < 0) {
+    cleanup(&idev);
+    initres = -ENODEV;
+    return initres;
+  }
+  idev.devattrok = 1;
 
   return 0;
 }
@@ -435,6 +408,7 @@ static void cleanup(struct isaacdev *idevp) {
   if (idevp->isaacrng.randmem != NULL) kfree(idevp->isaacrng.randmem);
   if (idevp->isaacrng.randrsl != NULL) kfree(idev.isaacrng.randrsl);
   if (idevp->opbuf != NULL) kfree(idevp->opbuf);
+  if (idevp->devattrok) device_remove_file(idevp->iscdev, &dev_attr_bswap);
   if (idevp->cdevok) cdev_del(&idevp->cdev);
   if (idevp->iscclass != NULL) {
     device_destroy(idevp->iscclass, idevp->dev);
