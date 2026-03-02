@@ -70,6 +70,7 @@ struct isaacdev {
   u16 cdevok;
   dev_t dev;
   u16 devok;
+  u16 devattrok;
   u32 *opbuf;
   size_t phase;
   u32 bswap;
